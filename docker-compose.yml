@@ -1,0 +1,124 @@
+---
+version: '3.5'
+
+volumes:
+  waiter-node-modules:
+  kitchen-node-modules:
+  delivery-app-node-modules:
+  motoboy-node-modules:
+  redis:
+
+services:
+  zookeeper:
+    image: confluentinc/cp-zookeeper:latest
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+
+  kafka:
+    image: confluentinc/cp-kafka:latest
+    depends_on:
+      - zookeeper
+    ports:
+      - 9092:9092
+      - 29092:29092
+    environment:
+      KAFKA_LISTENERS: INTERNAL://kafka:29092,EXTERNAL://0.0.0.0:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_BROKER_ID: 1
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:29092,EXTERNAL://localhost:9092
+      KAFKA_SOCKET_REQUEST_MAX_BYTES: 869295616
+
+  redis:
+    image: redis
+    command: redis-server --requirepass redis
+    ports:
+      - 6379:6379
+    volumes:
+      - redis:/data
+
+  waiter:
+    build:
+      context: waiter
+      dockerfile: Dockerfile
+    working_dir: /home/node/app
+    command: yarn dev
+    environment:
+      - KAFKA_BROKER_URI=kafka:29092
+      - PORT=3000
+    ports:
+      - 3000:3000
+    depends_on:
+      - kafka
+    volumes:
+      - ./waiter:/home/node/app:cached
+      - waiter-node-modules:/home/node/app/node_modules
+
+  delivery-app:
+    build:
+      context: delivery-app
+      dockerfile: Dockerfile
+    working_dir: /home/node/app
+    command: yarn dev
+    environment:
+      - KAFKA_BROKER_URI=kafka:29092
+      - REDIS_HOST=redis
+      - REDIS_PASSWORD=redis
+      - REDIS_PORT=6379
+      - PORT=4000
+    ports:
+      - 4000:4000
+    links:
+      - redis
+    depends_on:
+      - kafka
+    volumes:
+      - ./delivery-app:/home/node/app:cached
+      - delivery-app-node-modules:/home/node/app/node_modules
+
+  cooker:
+    build:
+      context: kitchen
+      dockerfile: Dockerfile
+    working_dir: /home/node/app
+    command: yarn dev
+    environment:
+      - KAFKA_BROKER_URI=kafka:29092
+      - CONSUMER_TYPE=Cooker
+    depends_on:
+      - kafka
+    volumes:
+      - ./kitchen:/home/node/app:cached
+      - kitchen-node-modules:/home/node/app/node_modules
+
+  bartender:
+    build:
+      context: kitchen
+      dockerfile: Dockerfile
+    working_dir: /home/node/app
+    command: yarn dev
+    environment:
+      - KAFKA_BROKER_URI=kafka:29092
+      - CONSUMER_TYPE=Bartender
+    depends_on:
+      - kafka
+    volumes:
+      - ./kitchen:/home/node/app:cached
+      - kitchen-node-modules:/home/node/app/node_modules
+
+  motoboy:
+    build:
+      context: motoboy
+      dockerfile: Dockerfile
+    working_dir: /home/node/app
+    command: yarn dev
+    environment:
+      - KAFKA_BROKER_URI=kafka:29092
+    depends_on:
+      - kafka
+    volumes:
+      - ./motoboy:/home/node/app:cached
+      - motoboy-node-modules:/home/node/app/node_modules
